@@ -27,6 +27,10 @@ for c in "${BOOSH_BASE:-}" "$ROOT/../dotfiles" "$ROOT/../booosh" "$ROOT/base"; d
   if [ -n "$c" ] && [ -x "$c/pack" ] && [ -x "$c/install.sh" ]; then BASE="$(cd "$c" && pwd)"; break; fi
 done
 export BOOSH_CATALOG="$ROOT"   # this repository is the catalog: the packs under test are the ones in the working tree
+export BOOSH_BREW_CANDIDATES=""   # never touch a real Homebrew
+# a real delta / lazygit on this machine would change what the tests see: drop the PATH entries that hold one
+path_without() { local d c skip out="" IFS=:; for d in $PATH; do skip=0; for c in "$@"; do case "$d" in /usr/bin|/bin|/usr/local/bin) ;; *) [ -x "$d/$c" ] && skip=1 ;; esac; done; [ "$skip" = 1 ] || out="${out:+$out:}$d"; done; echo "$out"; }
+PATH="$(path_without delta lazygit lazydocker)"
 HAVE_FISH=0; command -v fish >/dev/null 2>&1 && HAVE_FISH=1
 HAVE_GIT=0; command -v git >/dev/null 2>&1 && HAVE_GIT=1
 [ -n "$BASE" ] && echo "boosh checkout: $BASE" || echo "no boosh checkout found (set BOOSH_BASE): the install and prompt checks are skipped"
@@ -147,6 +151,43 @@ else
   echo "  skip  fish or git is not installed"
 fi
 
+echo "== tips pack: finding the abbreviation of a whole command"
+if [ "$HAVE_FISH" = 1 ]; then
+  new_home
+  tf() { fish --no-config -c 'source $argv[1]
+    abbr -a g git; abbr -a gst "git status -sb"; abbr -a gd "git diff"; abbr -a gds "git diff --staged"
+    abbr -a --set-cursor gcm "git commit -m \"%\""; abbr -a --position anywhere L "| less"; abbr -a lg lazygit
+    __boosh_tips_find $argv[2]' "$ROOT/tips/functions/__boosh_tips_find.fish" "$1" 2>&1 | tr '\t' '>'; }
+  [ "$(tf 'git status -sb')" = "gst>git status -sb" ] && pass "tips: a whole command finds its abbreviation" || fail "tips: a whole command finds its abbreviation" "$(tf 'git status -sb')"
+  [ "$(tf 'git status -sb -v')" = "gst>git status -sb" ] && pass "tips: extra arguments after it still match" || fail "tips: extra arguments after it still match"
+  [ -z "$(tf 'git status -sbx')" ] && pass "tips: a longer word does not match (-sbx)" || fail "tips: a longer word does not match (-sbx)"
+  [ "$(tf 'git diff --staged foo')" = "gds>git diff --staged" ] && pass "tips: the longest expansion wins (gds, not gd or g)" || fail "tips: the longest expansion wins" "$(tf 'git diff --staged foo')"
+  [ -z "$(tf 'git push')" ] && pass "tips: nothing is suggested for a command without an abbreviation (g saves only 2 characters)" || fail "tips: g=git must not be suggested" "$(tf 'git push')"
+  [ "$(tf 'git commit -m "fix it"')" = "gcm>git commit -m \"%\"" ] && pass "tips: an abbreviation with a cursor marker matches what comes before it" || fail "tips: cursor-marker abbreviation" "$(tf 'git commit -m "fix it"')"
+  [ "$(tf 'cd x && git status -sb')" = "gst>git status -sb" ] && [ "$(tf 'echo a | git diff')" = "gd>git diff" ] && pass "tips: commands joined with && ; | are looked at one by one" || fail "tips: joined commands"
+  [ "$(tf lazygit)" = "lg>lazygit" ] && pass "tips: a one-word expansion is suggested when it saves enough (lg for lazygit)" || fail "tips: lg for lazygit"
+  [ -z "$(tf 'ls | less')" ] && pass "tips: --position anywhere abbreviations are ignored" || fail "tips: --position anywhere abbreviations are ignored"
+  [ -z "$(tf '')" ] && pass "tips: an empty line is fine" || fail "tips: an empty line is fine"
+
+  echo "== tips pack: when the tip is shown"
+  ti() { # ti MODE LINE... : source the pack, define gst, then run LINE... as if they had just been executed
+    local mode="$1"; shift
+    fish --no-config -i -c 'source $argv[1]; source $argv[2]; set -g boosh_tips $argv[3]
+      abbr -a gst "git status -sb"
+      for l in $argv[4..-1]; emit fish_postexec $l; end' "$ROOT/tips/fish.fish" "$ROOT/tips/functions/__boosh_tips_find.fish" "$mode" "$@" 2>&1 | strip | grep -c '^tip: '; }
+  [ "$(ti once 'git status -sb' 'git status -sb')" = 1 ] && pass "tips: by default each tip is shown once per session" || fail "tips: once per session" "$(ti once 'git status -sb' 'git status -sb')"
+  [ "$(ti every 'git status -sb' 'git status -sb')" = 2 ] && pass "tips: boosh-tips every shows it each time" || fail "tips: every"
+  [ "$(ti off 'git status -sb' 'git status -sb')" = 0 ] && pass "tips: off shows nothing" || fail "tips: off"
+  [ "$(ti once 'git status')" = 0 ] && pass "tips: a command without a short form gets no tip" || fail "tips: no short form, no tip"
+  out="$(fish --no-config -i -c 'source $argv[1]; source $argv[2]; set -g boosh_tips every; abbr -a gst "git status -sb"
+      set -g __boosh_tips_used 1; emit fish_postexec "git status -sb"; echo "after-used=$__boosh_tips_used"; emit fish_postexec "git status -sb"' "$ROOT/tips/fish.fish" "$ROOT/tips/functions/__boosh_tips_find.fish" 2>&1 | strip)"
+  has "$out" 'after-used=0' && [ "$(grep -c '^tip: ' <<< "$out")" = 1 ] && pass "tips: a line where the abbreviation was used earns no tip, and the next line is judged on its own" || fail "tips: used abbreviation earns no tip" "$out"
+  out="$(fish --no-config -i -c 'source $argv[1]; source $argv[2]; source $argv[3]; boosh-tips off; boosh-tips; boosh-tips every; boosh-tips bogus; echo rc=$status' "$ROOT/tips/fish.fish" "$ROOT/tips/functions/boosh-tips.fish" "$ROOT/tips/functions/__boosh_tips_find.fish" 2>&1 | strip)"
+  has "$out" 'tips: off' && has "$out" 'tips: every' && has "$out" "unknown 'bogus'" && has "$out" 'rc=2' && pass "boosh-tips: off / every / status, and a wrong word is refused" || fail "boosh-tips command" "$out"
+else
+  echo "  skip  fish is not installed"
+fi
+
 echo "== installing the git pack (needs a boosh checkout)"
 if [ -n "$BASE" ] && [ "$HAVE_GIT" = 1 ]; then
   cleanup; new_home
@@ -232,6 +273,25 @@ if [ -n "$BASE" ] && [ "$HAVE_FISH" = 1 ] && [ "$HAVE_GIT" = 1 ]; then
   fi
 else
   echo "  skip  needs a boosh checkout, fish and git"
+fi
+
+echo "== tips pack: installing it, and the real keys (needs a boosh checkout and fish)"
+if [ -n "$BASE" ] && [ "$HAVE_FISH" = 1 ]; then
+  cleanup; new_home
+  "$BASE/pack" add tips >/dev/null 2>&1
+  check "tips links its snippet, commands and completions" bash -c "[ -L '$HOME/.config/fish/conf.d/pack-tips.fish' ] && [ -L '$HOME/.config/fish/functions/boosh-tips.fish' ] && [ -L '$HOME/.config/fish/functions/__boosh_tips_find.fish' ] && [ -L '$HOME/.config/fish/completions/boosh-tips.fish' ]"
+  check "pack status is healthy with it" "$BASE/pack" status
+  out="$(fish -i -c 'boosh-tips' 2>&1 | strip)"; has "$out" 'tips: on' && pass "boosh-tips works in a fresh fish" || fail "boosh-tips works in a fresh fish" "$out"
+  if [ "${BOOSH_TEST_PTY:-0}" = 1 ] && command -v script >/dev/null 2>&1; then
+    mkdir -p "$T/repo" && ( cd "$T/repo" && git init -q . ) >/dev/null 2>&1
+    fish -c "set -U fish_greeting ''" >/dev/null 2>&1
+    # typed through a real terminal: gst, the full command, the full command again, then "every" and the full command twice
+    out="$( cd "$T/repo" && { sleep 1.5; printf "abbr -a gst 'git status -sb'\r"; sleep 0.6; printf 'gst\r'; sleep 0.8; printf 'git status -sb\r'; sleep 0.8; printf 'git status -sb\r'; sleep 0.8; printf 'boosh-tips every\r'; sleep 0.6; printf 'git status -sb\r'; sleep 0.8; printf 'git status -sb\r'; sleep 0.8; printf 'exit\r'; sleep 0.4; } | LANG=C.UTF-8 script -qec "stty rows 40 cols 100; fish -i" /dev/null 2>/dev/null | tr -d '\r' | strip )"
+    n="$(grep -c '^tip: you can type gst instead of git status -sb' <<< "$out")"
+    [ "$n" = 3 ] && pass "real keys: no tip for gst, one for the full command (once per session), then one per line with boosh-tips every" || fail "real keys: tips" "tips shown=$n (expected 3)"
+  fi
+else
+  echo "  skip  needs a boosh checkout and fish"
 fi
 
 echo

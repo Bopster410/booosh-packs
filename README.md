@@ -21,6 +21,7 @@ For reproducible installs pin this repository to a commit in boosh's `packs.conf
 |---|---|
 | `git` | abbreviations (`gst`, `gd`, `gcm`, `gl`, `gla`, `gundo`, `gcam`...), `gsync`, safe git settings, git info in the boosh prompt. Optional part `--tag`: `gtag patch\|minor\|major`. |
 | `docker` | abbreviations for docker and compose. |
+| `tips` | after you type a whole command that has an abbreviation (`git status -sb` while `gst` exists), a gray line under its output tells you the short form. Works for every abbreviation, yours too. Once per session for each tip by default; `boosh-tips on\|every\|off`. |
 
 ## Developing and testing
 
