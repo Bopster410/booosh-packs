@@ -1,0 +1,8 @@
+# pack: git + delta. Included ONLY while the 'delta' command exists.
+[core]
+	pager = delta
+[interactive]
+	diffFilter = delta --color-only
+[delta]
+	navigate = true
+	line-numbers = true

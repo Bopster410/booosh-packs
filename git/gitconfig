@@ -1,0 +1,32 @@
+# pack: git. Safe defaults only; your name/email/aliases are never touched.
+# Nothing here rewrites history or changes what a command does: it changes how output looks and what is convenient.
+[init]
+	defaultBranch = main
+[push]
+	autoSetupRemote = true
+[fetch]
+	prune = true
+[rerere]
+	enabled = true
+# merge conflicts also show the original text (between ||||||| and =======)
+[merge]
+	conflictStyle = zdiff3
+# a diff that follows code moves better, and moved lines get their own colour
+[diff]
+	algorithm = histogram
+	colorMoved = default
+# `git branch` lists the branches you worked on last first; long lists go into columns
+[branch]
+	sort = -committerdate
+[column]
+	ui = auto
+# v1.9.0 before v1.10.0
+[tag]
+	sort = version:refname
+# `git rebase -i`: fixup! commits find their place themselves; stacked branches move together
+[rebase]
+	autoSquash = true
+	updateRefs = true
+# the commit message editor shows the diff below the message
+[commit]
+	verbose = true
