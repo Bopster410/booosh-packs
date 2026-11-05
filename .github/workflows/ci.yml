@@ -1,0 +1,22 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  packs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check out boosh (the tool that installs these packs)
+        uses: actions/checkout@v4
+        with:
+          repository: Bopster410/booosh
+          path: base
+      - name: Install fish
+        run: sudo apt-get update && sudo apt-get install -y fish
+      - name: Packs tests
+        run: bash tests/packs.sh
+      - name: Asynchronous prompt through a pty
+        run: BOOSH_TEST_PTY=1 bash tests/packs.sh
